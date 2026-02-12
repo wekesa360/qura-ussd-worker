@@ -1,0 +1,23 @@
+{
+  "name": "ussd-worker",
+  "version": "1.0.0",
+  "description": "USSD Worker for Qura Election System",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "hono": "^4.6.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.86.0"
+  }
+}

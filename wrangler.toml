@@ -1,0 +1,25 @@
+name = "ussd-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-06"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NODE_ENV = "production"
+AFRICAS_TALKING_USERNAME = "sandbox"
+AFRICAS_TALKING_SHORTCODE = "*384*8941#"
+AFRICAS_TALKING_API_KEY = "atsk_b42c2774e653b35009f2f942f54022711aa32fc5a0c7b9dd21df11759416295330c95634"
+
+# Service binding to backend worker
+[[services]]
+binding = "BACKEND"
+service = "election-system"
+environment = "production"
+
+[[kv_namespaces]]
+binding = "USSD_SESSIONS"
+id = "c3563d39b6fb45f580b8397ce7c439a7" # Created successfully
+
+
+# Secrets (to be set via 'wrangler secret put')
+# - AFRICAS_TALKING_API_KEY
+
