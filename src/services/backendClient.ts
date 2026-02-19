@@ -93,7 +93,9 @@ export class BackendClient {
     } catch (error) {
       console.error('[BackendClient] hasVoted RPC error:', error);
       return {
-        hasVoted: false, // Fail open - allow voting attempt
+        hasVoted: false,
+        success: false,
+        error: 'Unable to validate voter status. Please try again.',
       };
     }
   }

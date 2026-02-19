@@ -61,6 +61,24 @@ export class MenuHandler {
       if (elections.length === 0) {
         return 'END No active elections available.\n\nPlease try again later.';
       }
+
+      // If election has already been selected in-session, proceed with action menu.
+      if (session.electionId) {
+        if (!input) {
+          return 'CON Welcome\n\n1. Request Verification Code\n2. Vote in Election';
+        }
+
+        const choice = input.trim();
+        if (choice === '1') {
+          session.currentMenu = MenuState.REQUEST_CODE;
+          return 'CON Enter your Voter ID:';
+        } else if (choice === '2') {
+          session.currentMenu = MenuState.VERIFY_ID;
+          return 'CON Enter your Voter ID:';
+        }
+
+        return 'END Invalid option. Please dial again.';
+      }
       
       // If only one election, auto-select it
       if (elections.length === 1) {
@@ -156,6 +174,11 @@ export class MenuHandler {
         electionId: session.electionId,
         voterId
       });
+
+      if ((voteCheck as any).success === false) {
+        const errorMsg = (voteCheck as any).error || 'Failed to validate voting status.';
+        return `END ${errorMsg}`;
+      }
       
       if (voteCheck.hasVoted) {
         return 'END You have already cast your ballot in this election.\n\nThank you for participating!';
