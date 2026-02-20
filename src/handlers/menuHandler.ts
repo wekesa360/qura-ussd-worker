@@ -1,4 +1,4 @@
-import { USSDSession, MenuState, Env } from '../types';
+import { USSDSession, MenuState, Env, BallotPosition } from '../types';
 import { BackendClient } from '../services/backendClient';
 
 export class MenuHandler {
@@ -70,9 +70,11 @@ export class MenuHandler {
 
         const choice = input.trim();
         if (choice === '1') {
+          session.ballotCache = undefined;
           session.currentMenu = MenuState.REQUEST_CODE;
           return 'CON Enter your Voter ID:';
         } else if (choice === '2') {
+          session.ballotCache = undefined;
           session.currentMenu = MenuState.VERIFY_ID;
           return 'CON Enter your Voter ID:';
         }
@@ -90,9 +92,11 @@ export class MenuHandler {
         
         const choice = input.trim();
         if (choice === '1') {
+          session.ballotCache = undefined;
           session.currentMenu = MenuState.REQUEST_CODE;
           return 'CON Enter your Voter ID:';
         } else if (choice === '2') {
+          session.ballotCache = undefined;
           session.currentMenu = MenuState.VERIFY_ID;
           return 'CON Enter your Voter ID:';
         } else {
@@ -117,6 +121,7 @@ export class MenuHandler {
       
       const selectedElection = elections[selectionIndex - 1];
       session.electionId = selectedElection.id;
+      session.ballotCache = undefined;
       
       return `CON ${selectedElection.name}\n\n1. Request Verification Code\n2. Vote in Election`;
     } catch (error: any) {
@@ -168,6 +173,7 @@ export class MenuHandler {
     try {
       const voterId = input.trim();
       session.voterId = voterId;
+      session.ballotCache = undefined;
 
       // 1. Check if already voted
       const voteCheck = await this.backend.hasVoted({
@@ -252,17 +258,10 @@ export class MenuHandler {
 
   private async showBallotPosition(session: USSDSession): Promise<string> {
     try {
-      const ballotResult = await this.backend.getBallot({
-        electionId: session.electionId!,
-        voterId: session.voterId!
-      });
-
-      if (!ballotResult.success || !ballotResult.ballot) {
-        console.error('[ShowBallot] Failed to load ballot:', ballotResult);
+      const positions = await this.getBallotPositions(session);
+      if (!positions) {
         return 'END Failed to load ballot.\n\nPlease try again later.';
       }
-
-      const positions = ballotResult.ballot.positions;
       const currentIndex = session.votingProgress.currentPositionIndex;
 
       // Check if we've gone through all positions
@@ -304,17 +303,10 @@ export class MenuHandler {
     }
     
     try {
-      const ballotResult = await this.backend.getBallot({
-        electionId: session.electionId!,
-        voterId: session.voterId!
-      });
-      
-      if (!ballotResult.success || !ballotResult.ballot) {
-        console.error('[BallotPosition] Failed to load ballot:', ballotResult);
+      const positions = await this.getBallotPositions(session);
+      if (!positions) {
         return 'END Failed to load ballot.\n\nPlease try again later.';
       }
-      
-      const positions = ballotResult.ballot.positions;
       const currentIndex = session.votingProgress.currentPositionIndex;
       const position = positions[currentIndex];
       
@@ -349,22 +341,22 @@ export class MenuHandler {
     }
   }
   
-  private getBallotPositionText(position: any, currentIndex: number): string {
+  private getBallotPositionText(position: BallotPosition, currentIndex: number): string {
     let response = `Vote for ${position.title}\n`;
-    position.candidates.forEach((candidate: any, index: number) => {
+    position.candidates.forEach((candidate, index: number) => {
       response += `${index + 1}. ${candidate.name}\n`;
     });
     if (currentIndex > 0) response += `0. Back`;
     return response;
   }
   
-  private async showReviewVotes(session: USSDSession, positions: any[]): Promise<string> {
+  private async showReviewVotes(session: USSDSession, positions: BallotPosition[]): Promise<string> {
     let response = `CON Review your choices:\n`;
     
     let hasSelections = false;
     positions.forEach((position) => {
       const selectedId = session.votingProgress.selections[position.id];
-      const selectedCandidate = position.candidates.find((c: any) => c.id === selectedId);
+      const selectedCandidate = position.candidates.find((c) => c.id === selectedId);
       if (selectedCandidate) {
         response += `${position.title}: ${selectedCandidate.name}\n`;
         hasSelections = true;
@@ -420,16 +412,11 @@ export class MenuHandler {
     if (choice === '0') {
       // Go back to review
       session.currentMenu = MenuState.REVIEW_VOTES;
-      const ballotResult = await this.backend.getBallot({
-        electionId: session.electionId!,
-        voterId: session.voterId!
-      });
-      
-      if (ballotResult.success && ballotResult.ballot) {
-        return this.showReviewVotes(session, ballotResult.ballot.positions);
-      } else {
+      const positions = await this.getBallotPositions(session);
+      if (!positions) {
         return 'END Failed to load ballot.\n\nPlease try again.';
       }
+      return this.showReviewVotes(session, positions);
     } else if (choice === '1') {
       // Submit vote
       try {
@@ -456,5 +443,35 @@ export class MenuHandler {
     } else {
       return 'END Invalid option.';
     }
+  }
+
+  private async getBallotPositions(session: USSDSession): Promise<BallotPosition[] | null> {
+    if (
+      session.ballotCache &&
+      session.ballotCache.electionId === session.electionId &&
+      session.ballotCache.voterId === session.voterId &&
+      Array.isArray(session.ballotCache.positions)
+    ) {
+      return session.ballotCache.positions;
+    }
+
+    const ballotResult = await this.backend.getBallot({
+      electionId: session.electionId!,
+      voterId: session.voterId!,
+    });
+
+    if (!ballotResult.success || !ballotResult.ballot) {
+      console.error('[Ballot] Failed to load ballot:', ballotResult);
+      return null;
+    }
+
+    session.ballotCache = {
+      electionId: session.electionId!,
+      voterId: session.voterId!,
+      positions: ballotResult.ballot.positions as BallotPosition[],
+      fetchedAt: Date.now(),
+    };
+
+    return session.ballotCache.positions;
   }
 }

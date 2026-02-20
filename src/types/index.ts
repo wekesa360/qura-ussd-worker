@@ -17,6 +17,24 @@ export interface VotingProgress {
   selections: Record<string, string>; // positionId -> candidateId
 }
 
+export interface BallotCandidate {
+  id: string;
+  name: string;
+}
+
+export interface BallotPosition {
+  id: string;
+  title: string;
+  candidates: BallotCandidate[];
+}
+
+export interface BallotCache {
+  electionId: string;
+  voterId: string;
+  positions: BallotPosition[];
+  fetchedAt: number;
+}
+
 export interface USSDSession {
   sessionId: string;
   phoneNumber: string;
@@ -24,6 +42,7 @@ export interface USSDSession {
   voterId?: string;
   voterName?: string;
   electionId?: string;
+  ballotCache?: BallotCache;
   votingProgress: VotingProgress;
   lastActivity: number;
 }
@@ -43,5 +62,6 @@ export interface Env {
   AFRICAS_TALKING_USERNAME: string;
   AFRICAS_TALKING_API_KEY: string;
   AFRICAS_TALKING_SHORTCODE: string;
+  USSD_SESSION_TTL_SECONDS?: string;
   NODE_ENV: string;
 }
