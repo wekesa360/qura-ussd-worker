@@ -33,8 +33,9 @@ app.post('/ussd', async (c: Context) => {
       return c.text('END Invalid Request');
     }
 
-    // Initialize session manager
-    const sessionManager = new SessionManager(c.env.USSD_SESSIONS);
+    // Initialize session manager with configurable TTL (default 30 minutes)
+    const configuredTtl = Number(c.env.USSD_SESSION_TTL_SECONDS || 60 * 30);
+    const sessionManager = new SessionManager(c.env.USSD_SESSIONS, configuredTtl);
     let session = await sessionManager.getSession(sessionId);
     
     // Create new session if not exists

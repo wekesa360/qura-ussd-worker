@@ -3,10 +3,11 @@ import { USSDSession, MenuState } from '../types';
 
 export class SessionManager {
   private kv: KVNamespace;
-  private readonly TTL = 60 * 10; // 10 minutes session timeout
+  private readonly ttlSeconds: number;
 
-  constructor(kv: KVNamespace) {
+  constructor(kv: KVNamespace, ttlSeconds: number = 60 * 30) {
     this.kv = kv;
+    this.ttlSeconds = Math.max(60, ttlSeconds); // never below 1 minute
   }
 
   async getSession(sessionId: string): Promise<USSDSession | null> {
@@ -48,7 +49,7 @@ export class SessionManager {
     try {
       session.lastActivity = Date.now();
       await this.kv.put(session.sessionId, JSON.stringify(session), {
-        expirationTtl: this.TTL,
+        expirationTtl: this.ttlSeconds,
       });
     } catch (error) {
       console.error('[SessionManager] Save session error:', error);
