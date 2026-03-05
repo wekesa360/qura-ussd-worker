@@ -14,7 +14,8 @@ export enum MenuState {
 
 export interface VotingProgress {
   currentPositionIndex: number;
-  selections: Record<string, string>; // positionId -> candidateId
+  selections: Record<string, string | string[]>; // positionId -> candidateId(s) - Phase 4: Support multi-seat
+  multiSeatMode?: Record<string, boolean>; // Track which positions are in multi-seat selection mode
 }
 
 export interface BallotCandidate {
@@ -26,6 +27,12 @@ export interface BallotPosition {
   id: string;
   title: string;
   candidates: BallotCandidate[];
+  // Phase 4: Position metadata for USSD enhancements
+  position_type?: string;
+  isOptional?: boolean;
+  short_description?: string;
+  max_selections?: number;
+  min_selections?: number;
 }
 
 export interface BallotCache {

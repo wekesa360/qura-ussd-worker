@@ -272,6 +272,28 @@ export class MenuHandler {
 
       const position = positions[currentIndex];
       
+      // Phase 4: Handle motions/resolutions (Yes/No options)
+      const isMotionType = ['motion', 'financial', 'resolution'].includes(position.position_type || '');
+      
+      if (isMotionType && (!position.candidates || position.candidates.length === 0)) {
+        // For motions without candidates, create Yes/No options
+        const displayTitle = position.short_description || position.title;
+        let response = `CON ${displayTitle}\n`;
+        response += `1. Yes\n`;
+        response += `2. No\n`;
+        
+        // Phase 4: Optional positions can be skipped
+        if (position.isOptional) {
+          response += `3. Skip\n`;
+        }
+        
+        if (currentIndex > 0) {
+          response += `0. Back`;
+        }
+        
+        return response;
+      }
+      
       if (!position.candidates || position.candidates.length === 0) {
         console.warn(`[ShowBallot] No candidates for position: ${position.title}`);
         // Skip to next position
@@ -279,11 +301,59 @@ export class MenuHandler {
         return this.showBallotPosition(session);
       }
       
-      let response = `CON Vote for ${position.title}\n`;
+      // Phase 4: Use short_description for USSD if available
+      const displayTitle = position.short_description || position.title;
+      const maxSelections = position.max_selections || 1;
+      const isMultiSeat = maxSelections > 1;
+      const isInMultiSeatMode = session.votingProgress.multiSeatMode?.[position.id] || false;
+      
+      // Phase 4: Check if we're continuing multi-seat selection
+      if (isMultiSeat && isInMultiSeatMode) {
+        const currentSelections = this.getCurrentSelections(session, position.id);
+        const remaining = maxSelections - currentSelections.length;
+        
+        if (remaining <= 0) {
+          // All selections made, move to next position
+          session.votingProgress.multiSeatMode![position.id] = false;
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        }
+        
+        let response = `CON ${displayTitle}\n`;
+        response += `Select ${remaining} more (${currentSelections.length}/${maxSelections} selected)\n\n`;
+        
+        // Show available candidates (exclude already selected)
+        let optionNum = 1;
+        position.candidates.forEach((candidate: { id: string; name: string }, index: number) => {
+          if (!currentSelections.includes(candidate.id)) {
+            response += `${optionNum}. ${candidate.name}\n`;
+            optionNum++;
+          }
+        });
+        
+        response += `\n9. Done (${currentSelections.length}/${maxSelections})\n`;
+        if (currentIndex > 0) {
+          response += `0. Back`;
+        }
+        
+        return response;
+      }
+      
+      // Standard single-seat or initial multi-seat display
+      let response = `CON ${displayTitle}\n`;
+      
+      if (isMultiSeat) {
+        response += `Select up to ${maxSelections} (choose ${position.min_selections || 1}-${maxSelections})\n\n`;
+      }
       
       position.candidates.forEach((candidate: { name: string }, index: number) => {
         response += `${index + 1}. ${candidate.name}\n`;
       });
+      
+      // Phase 4: Optional positions can be skipped
+      if (position.isOptional) {
+        response += `\n${position.candidates.length + 1}. Skip this position\n`;
+      }
       
       // Add navigation options
       if (currentIndex > 0) {
@@ -295,6 +365,14 @@ export class MenuHandler {
       console.error('[ShowBallot] Exception:', error);
       return 'END Failed to load ballot.\n\nPlease try again later.';
     }
+  }
+  
+  // Phase 4: Helper to get current selections for a position
+  private getCurrentSelections(session: USSDSession, positionId: string): string[] {
+    const selection = session.votingProgress.selections[positionId];
+    if (!selection) return [];
+    if (Array.isArray(selection)) return selection;
+    return [selection as string];
   }
   
   private async handleBallotPosition(session: USSDSession, input: string | null): Promise<string> {
@@ -314,6 +392,11 @@ export class MenuHandler {
       
       // Handle "Back" navigation
       if (selectionIndex === 0 && currentIndex > 0) {
+        // Phase 4: Clear multi-seat mode when going back
+        if (session.votingProgress.multiSeatMode?.[position.id]) {
+          delete session.votingProgress.multiSeatMode![position.id];
+          session.votingProgress.selections[position.id] = undefined;
+        }
         session.votingProgress.currentPositionIndex--;
         return this.showBallotPosition(session);
       }
@@ -323,12 +406,102 @@ export class MenuHandler {
         return 'END Voting cancelled.\n\nYour vote was not submitted.';
       }
       
+      // Phase 4: Handle motions/resolutions (Yes/No)
+      const isMotionType = ['motion', 'financial', 'resolution'].includes(position.position_type || '');
+      if (isMotionType && (!position.candidates || position.candidates.length === 0)) {
+        if (selectionIndex === 1) {
+          // Yes - create a "Yes" candidate ID
+          session.votingProgress.selections[position.id] = 'YES';
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        } else if (selectionIndex === 2) {
+          // No - create a "No" candidate ID
+          session.votingProgress.selections[position.id] = 'NO';
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        } else if (selectionIndex === 3 && position.isOptional) {
+          // Skip optional position
+          session.votingProgress.selections[position.id] = 'SKIPPED';
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        } else {
+          return `CON Invalid choice. Try again.\n\n${this.getBallotPositionText(position, currentIndex)}`;
+        }
+      }
+      
+      // Phase 4: Handle multi-seat selection mode
+      const maxSelections = position.max_selections || 1;
+      const isMultiSeat = maxSelections > 1;
+      const isInMultiSeatMode = session.votingProgress.multiSeatMode?.[position.id] || false;
+      
+      if (isMultiSeat && isInMultiSeatMode) {
+        // Handle "Done" in multi-seat mode
+        if (selectionIndex === 9) {
+          const currentSelections = this.getCurrentSelections(session, position.id);
+          const minSelections = position.min_selections || 1;
+          
+          if (currentSelections.length < minSelections) {
+            return `CON You must select at least ${minSelections}. You have ${currentSelections.length}.\n\n${this.getBallotPositionText(position, currentIndex)}`;
+          }
+          
+          // Done with multi-seat selection
+          session.votingProgress.multiSeatMode![position.id] = false;
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        }
+        
+        // Handle candidate selection in multi-seat mode
+        const currentSelections = this.getCurrentSelections(session, position.id);
+        const availableCandidates = position.candidates.filter(c => !currentSelections.includes(c.id));
+        
+        if (selectionIndex < 1 || selectionIndex > availableCandidates.length) {
+          return `CON Invalid choice. Try again.\n\n${this.getBallotPositionText(position, currentIndex)}`;
+        }
+        
+        const selectedCandidate = availableCandidates[selectionIndex - 1];
+        const newSelections = [...currentSelections, selectedCandidate.id];
+        
+        if (newSelections.length >= maxSelections) {
+          // Reached max selections, move to next position
+          session.votingProgress.selections[position.id] = newSelections;
+          session.votingProgress.multiSeatMode![position.id] = false;
+          session.votingProgress.currentPositionIndex++;
+          return this.showBallotPosition(session);
+        } else {
+          // Continue selecting
+          session.votingProgress.selections[position.id] = newSelections;
+          return this.showBallotPosition(session);
+        }
+      }
+      
+      // Phase 4: Handle optional skip
+      if (position.isOptional && selectionIndex === position.candidates.length + 1) {
+        session.votingProgress.selections[position.id] = 'SKIPPED';
+        session.votingProgress.currentPositionIndex++;
+        return this.showBallotPosition(session);
+      }
+      
       // Validate selection
       if (isNaN(selectionIndex) || selectionIndex < 1 || selectionIndex > position.candidates.length) {
         return `CON Invalid choice. Try again.\n\n${this.getBallotPositionText(position, currentIndex)}`;
       }
       
-      // Store selection
+      // Phase 4: Handle initial multi-seat selection
+      if (isMultiSeat) {
+        // Initialize multi-seat mode
+        if (!session.votingProgress.multiSeatMode) {
+          session.votingProgress.multiSeatMode = {};
+        }
+        session.votingProgress.multiSeatMode[position.id] = true;
+        
+        const selectedCandidate = position.candidates[selectionIndex - 1];
+        session.votingProgress.selections[position.id] = [selectedCandidate.id];
+        
+        // Continue to allow more selections
+        return this.showBallotPosition(session);
+      }
+      
+      // Standard single-seat selection
       const selectedCandidate = position.candidates[selectionIndex - 1];
       session.votingProgress.selections[position.id] = selectedCandidate.id;
       
@@ -342,21 +515,68 @@ export class MenuHandler {
   }
   
   private getBallotPositionText(position: BallotPosition, currentIndex: number): string {
-    let response = `Vote for ${position.title}\n`;
-    position.candidates.forEach((candidate, index: number) => {
-      response += `${index + 1}. ${candidate.name}\n`;
-    });
+    const displayTitle = position.short_description || position.title;
+    let response = `${displayTitle}\n`;
+    
+    // Phase 4: Handle motions
+    const isMotionType = ['motion', 'financial', 'resolution'].includes(position.position_type || '');
+    if (isMotionType && (!position.candidates || position.candidates.length === 0)) {
+      response += `1. Yes\n2. No\n`;
+      if (position.isOptional) {
+        response += `3. Skip\n`;
+      }
+    } else {
+      position.candidates.forEach((candidate, index: number) => {
+        response += `${index + 1}. ${candidate.name}\n`;
+      });
+      if (position.isOptional) {
+        response += `${position.candidates.length + 1}. Skip\n`;
+      }
+    }
+    
     if (currentIndex > 0) response += `0. Back`;
     return response;
   }
   
   private async showReviewVotes(session: USSDSession, positions: BallotPosition[]): Promise<string> {
-    let response = `CON Review your choices:\n`;
+    let response = `CON Review your choices:\n\n`;
     
     let hasSelections = false;
     positions.forEach((position) => {
-      const selectedId = session.votingProgress.selections[position.id];
-      const selectedCandidate = position.candidates.find((c) => c.id === selectedId);
+      const selection = session.votingProgress.selections[position.id];
+      if (!selection) return;
+      
+      // Phase 4: Handle skipped positions
+      if (selection === 'SKIPPED') {
+        response += `${position.title}: Skipped\n`;
+        hasSelections = true;
+        return;
+      }
+      
+      // Phase 4: Handle motions (Yes/No)
+      const isMotionType = ['motion', 'financial', 'resolution'].includes(position.position_type || '');
+      if (isMotionType && (selection === 'YES' || selection === 'NO')) {
+        response += `${position.title}: ${selection === 'YES' ? 'Yes' : 'No'}\n`;
+        hasSelections = true;
+        return;
+      }
+      
+      // Phase 4: Handle multi-seat selections
+      if (Array.isArray(selection)) {
+        const selectedNames = selection
+          .map(id => {
+            if (id === 'YES' || id === 'NO') return id;
+            const candidate = position.candidates.find(c => c.id === id);
+            return candidate?.name || 'Unknown';
+          })
+          .join(', ');
+        response += `${position.title}: ${selectedNames}\n`;
+        hasSelections = true;
+        return;
+      }
+      
+      // Single-seat selection
+      const selectedCandidate = position.candidates.find((c) => c.id === selection);
       if (selectedCandidate) {
         response += `${position.title}: ${selectedCandidate.name}\n`;
         hasSelections = true;
@@ -420,10 +640,18 @@ export class MenuHandler {
     } else if (choice === '1') {
       // Submit vote
       try {
+        // Phase 4: Transform selections to proper format (handle multi-seat arrays)
+        const votes: Record<string, string | string[]> = {};
+        Object.entries(session.votingProgress.selections).forEach(([positionId, selection]) => {
+          if (selection) {
+            votes[positionId] = selection; // Already in correct format (string or string[])
+          }
+        });
+        
         const result = await this.backend.submitVote({
           electionId: session.electionId!,
           voterId: session.voterId!,
-          votes: session.votingProgress.selections,
+          votes,
           sessionId: session.sessionId,
           phoneNumber: session.phoneNumber
         });
